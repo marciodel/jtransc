@@ -55,3 +55,7 @@ jtransc-main/program.haxe.noanalyzer.js
 *.xml-e
 /benchmark/program.exe
 /benchmark/program.obj
+.project
+.settings
+.classpath
+bin/
