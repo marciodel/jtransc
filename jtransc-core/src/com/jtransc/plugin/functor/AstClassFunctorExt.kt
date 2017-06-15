@@ -4,7 +4,7 @@ import com.jtransc.ast.AstClass
 import com.jtransc.ast.AstMethod
 import com.jtransc.ast.AstType
 
-val FUNCTIONAL_INTERFACE_REF = AstType.REF(FunctionalInterface::class.java.name)
+val FUNCTIONAL_INTERFACE_REF = AstType.REF("java.lang.FunctionalInterface")
 
 fun AstClass?.getFunctionalInterface(): AstClass? {
 	return (this?.allDirectInterfaces?.plus(this))?.firstOrNull {
