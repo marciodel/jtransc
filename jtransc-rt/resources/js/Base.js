@@ -779,11 +779,19 @@ N.is = function(i, clazz) {
 N.checkCast = function(i, clazz) {
 	if (i == null) return null;
 	if (clazz === null) throw new Error('Internal error N.checkCast');
+	if (clazz == Unknown || clazz == Any) return i;
+	if (i instanceof clazz) return i;
 	if (!N.is(i, clazz)) {
 		throw new WrappedError({% CONSTRUCTOR java.lang.ClassCastException:(Ljava/lang/String;)V %}(N.str('Invalid conversion')));
 	}
 	return i;
 };
+
+function Unknown(){
+}
+
+function Any(){
+}
 
 N.isClassId = function(i, classId) {
 	if (i == null) return false;
@@ -969,6 +977,7 @@ N.unboxByteArray = function(value) {
 };
 
 N.unbox = function(value, throwOnInvalid) {
+	if (value == null) return value;
 	if (N.is(value, {% CLASS java.lang.Boolean %})) return N.unboxBool(value);
 	if (N.is(value, {% CLASS java.lang.Byte %})) return N.unboxByte(value);
 	if (N.is(value, {% CLASS java.lang.Short %})) return N.unboxShort(value);
@@ -980,6 +989,7 @@ N.unbox = function(value, throwOnInvalid) {
 	if (N.is(value, {% CLASS java.lang.String %})) return N.unboxString(value);
 	if (value instanceof JA_B) return N.unboxByteArray(value);
 	if (N.is(value, {% CLASS com.jtransc.JTranscWrapped %})) return N.unboxWrapped(value);
+	if (value.constructor.__function) return value.constructor.__function(value);
 	if (throwOnInvalid) throw 'Was not able to unbox "' + value + '"';
 	return value;
 }
@@ -1050,11 +1060,12 @@ N.boxArray = function(array) {
 
 N.box = function(v) {
 	if (v instanceof {% CLASS java.lang.Object %}) return v; // already boxed!
+	if ((v == null) || N.is(v, {% CLASS java.lang.Object %})) return v;
 	if (v instanceof Int64) return N.boxLong(v);
 	if (typeof v == 'string') return N.str(v);
 	if ((v|0) == v) return N.boxInt(v);
 	if (+(v) == v) return N.boxFloat(v);
-	if ((v == null) || N.is(v, {% CLASS java.lang.Object %})) return v;
+	if (typeof v == 'function' && v.__obj) return v.__obj
 	return N.wrap(v);
 };
 

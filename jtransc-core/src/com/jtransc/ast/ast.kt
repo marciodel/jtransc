@@ -723,7 +723,7 @@ class AstMethod constructor(
 
 	val parameterAnnotationsList: List<AstAnnotationList> = parameterAnnotations.map { AstAnnotationList(ref, it) }
 
-	fun getParamsWithAnnotations() = methodType.args.map { AstArgumentWithAnnotations(it, parameterAnnotationsList[it.index]) }
+	fun getParamsWithAnnotations() = methodType.args.map { AstArgumentWithAnnotations(it, if(parameterAnnotationsList.isNotEmpty()) parameterAnnotationsList[it.index] else AstAnnotationList(ref, emptyList())) }
 	fun getParamsWithAnnotations(args: List<AstExpr>) = methodType.args.zip(args).map { AstArgumentCallWithAnnotations(it.first, parameterAnnotationsList[it.first.index], it.second) }
 	fun getParamsWithAnnotationsBox(args: List<AstExpr.Box>) = methodType.args.zip(args).map { AstArgumentCallWithAnnotations(it.first, parameterAnnotationsList.getOrNull(it.first.index), it.second.value) }
 

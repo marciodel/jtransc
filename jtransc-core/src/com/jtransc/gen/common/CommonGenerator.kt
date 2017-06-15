@@ -21,6 +21,7 @@ import com.jtransc.io.ProcessResult2
 import com.jtransc.lang.high
 import com.jtransc.lang.low
 import com.jtransc.lang.putIfAbsentJre7
+import com.jtransc.plugin.functor.getFunctionalInterface
 import com.jtransc.template.Minitemplate
 import com.jtransc.text.Indenter
 import com.jtransc.text.isLetterDigitOrUnderscore
@@ -494,14 +495,16 @@ abstract class CommonGenerator(val injector: Injector) : IProgramTemplate {
 			refs.add(clazz)
 			mutableBody.initClassRef(clazz, "CALL_STATIC")
 		}
+		val callsiteBody = refMethod.annotationsList.getCallSiteBodyForTarget(targetName)?.template("JTranscCallSiteBody")
 		val isNativeCall = refMethodClass.isNative
+//				|| callsiteBody != null
+//				|| refMethod.annotationsList.getBodiesForTarget(targetName).isNotEmpty()
 		//val nonNativeCall = if (isNativeCall) refMethod.annotationsList.nonNativeCall else false
 		val nonNativeCall = false
 
-		fun processArg(arg: AstExpr.Box, targetType: AstType) = processCallArg(arg.value, if (isNativeCall) convertToTarget(arg) else arg.genExpr(), targetType)
-		fun processArg(arg: AstExpr.Box) = processArg(arg, arg.type)
+		fun processArg(arg: AstExpr.Box, targetType: AstType, isConverting: Boolean = isNativeCall) = processCallArg(arg.value, if (isConverting) convertToTarget(arg) else arg.genExpr(), targetType)
+		fun processArg(arg: AstExpr.Box, isConverting: Boolean = isNativeCall) = processArg(arg, arg.type, isConverting)
 
-		val callsiteBody = refMethod.annotationsList.getCallSiteBodyForTarget(targetName)?.template("JTranscCallSiteBody")
 
 		fun unbox(arg: AstExpr.Box): String {
 			val processed = processArg(arg)
@@ -825,7 +828,10 @@ abstract class CommonGenerator(val injector: Injector) : IProgramTemplate {
 	}
 
 	open fun genStmSetFieldStaticActual(stm: AstStm.SET_FIELD_STATIC, left: String, field: AstFieldRef, right: String): Indenter = indent {
-		line("$left = $right;")
+		
+		line("$left = ${if(program[field.containingClass].isNative){
+			convertToTarget(field.type, right)
+		} else right};")
 	}
 
 	fun genStmSwitchGoto(stm: AstStm.SWITCH_GOTO): Indenter = indent {
@@ -859,7 +865,11 @@ abstract class CommonGenerator(val injector: Injector) : IProgramTemplate {
 		}
 	}
 
-	open fun actualSetField(stm: AstStm.SET_FIELD_INSTANCE, left: String, right: String): String = "$left = $right;"
+	open fun actualSetField(stm: AstStm.SET_FIELD_INSTANCE, left: String, right: String): String {
+		return "$left = ${if(program[stm.field.containingClass].isNative){
+			convertToTarget(stm.field.type, right)
+		} else right};"
+	} 
 
 	open fun genStmContinue(stm: AstStm.CONTINUE) = Indenter("continue;")
 	open fun genStmBreak(stm: AstStm.BREAK) = Indenter("break;")
@@ -1164,11 +1174,21 @@ abstract class CommonGenerator(val injector: Injector) : IProgramTemplate {
 	open fun genExprFieldStaticAccess(e: AstExpr.FIELD_STATIC_ACCESS): String {
 		refs.add(e.clazzName)
 		mutableBody.initClassRef(fixField(e.field).classRef, "FIELD_STATIC_ACCESS")
-		return "${fixField(e.field).nativeStaticText}"
+		
+		val expr = fixField(e.field).nativeStaticText
+		
+		return if(program[e.field.containingClass].isNative){
+			convertToJava(e.field.type, expr)
+		} else expr
+		
 	}
 
 	open fun genExprFieldInstanceAccess(e: AstExpr.FIELD_INSTANCE_ACCESS): String {
-		return buildInstanceField(e.expr.genNotNull(), fixField(e.field))
+		val expr = buildInstanceField(e.expr.genNotNull(), fixField(e.field))
+		
+		return if(program[e.field.containingClass].isNative){
+			convertToJava(e.field.type, expr)
+		} else expr
 	}
 
 	private fun genExprUnop(e: AstExpr.UNOP): String {

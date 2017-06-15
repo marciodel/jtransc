@@ -2,6 +2,7 @@ package com.jtransc.gen.js
 
 import com.jtransc.ConfigOutputFile
 import com.jtransc.ConfigTargetDirectory
+import com.jtransc.JTranscWrapped
 import com.jtransc.annotation.JTranscCustomMainList
 import com.jtransc.ast.*
 import com.jtransc.ast.feature.method.SwitchFeature
@@ -15,6 +16,9 @@ import com.jtransc.injector.Injector
 import com.jtransc.injector.Singleton
 import com.jtransc.io.ProcessResult2
 import com.jtransc.log.log
+import com.jtransc.plugin.functor.FunctorSet
+import com.jtransc.plugin.functor.getFunctionalInterface
+import com.jtransc.plugin.functor.getSAM
 import com.jtransc.sourcemaps.Sourcemaps
 import com.jtransc.text.Indenter
 import com.jtransc.text.Indenter.Companion
@@ -320,6 +324,7 @@ class JsGenerator(injector: Injector) : CommonGenerator(injector) {
 					val nativeMemberName = if (field.targetName == field.name) field.name else field.targetName
 					line("this${instanceAccess(nativeMemberName, field = true)} = ${field.escapedConstantValue};")
 				}
+
 			}
 
 			line("$classBase.prototype = Object.create($parentClassBase.prototype);")
@@ -446,10 +451,75 @@ class JsGenerator(injector: Injector) : CommonGenerator(injector) {
 
 			for (method in clazz.methods.filter { it.isClassOrInstanceInit }) line(writeMethod(method))
 			for (method in clazz.methods.filter { !it.isClassOrInstanceInit }) line(writeMethod(method))
+
+			val functionalIntf = clazz.getFunctionalInterface()
+			if(functionalIntf != null && functionalIntf.name in injector.get<FunctorSet>()){
+				val fnIntfClassBase = functionalIntf.name.targetName
+				val method = functionalIntf.getSAM()!!
+				val margs = method.methodType.args.map { it.name }
+				val boxArgs = genBoxArgs(method)
+				val unboxArgs = genUnboxArgs(method)
+				val nativeMemberName = buildMethod(method, false, includeDot = false)
+				val prefix = "${getMemberBase(method.isStatic)}${staticAccess(nativeMemberName, field = false)}"
+				val WRAPPED_REF = AstType.REF(com.jtransc.JTranscWrapped::class.java.name)
+
+				if(functionalIntf == clazz){
+					line("""$classBase.__wrap = function(value){
+						if(N.is(value, $fnIntfClassBase)) return value;
+	
+						if(value instanceof ${WRAPPED_REF.targetName} && typeof value._wrapped == 'function'){
+							value = value._wrapped
+						}
+	
+						if(typeof value == "function"){
+							if(value.__obj) return value.__obj;
+							var ret = new $fnIntfClassBase();
+							var _wrapped = value;
+							ret${instanceAccess(method.targetName, false)} = function(${margs.joinToString(", ")}){
+								return N.box(${convertToJava(method.type, "_wrapped.call(${(listOf("null")+unboxArgs).joinToString(", ")}))")};
+							}
+							return ret;
+						} else{
+							return value;
+						}
+					};""") 
+					line("""$classBase.__function = function(value){
+						var fn = function(${margs.joinToString(", ")}){
+							return N.unbox(${convertToTarget(method.type, " value${instanceAccess(method.targetName, false)}.call(${(listOf("value")+boxArgs).joinToString(", ")}))")};
+						};
+						fn.__obj = value;
+						return fn; 
+					};""")
+				} else {
+					line("""$classBase.__wrap = $fnIntfClassBase.__wrap;""")
+					line("""$classBase.__function = $fnIntfClassBase.__function;""")
+				}
+			}
 		}
 
 		return listOf(ClassResult(SubClass(clazz, MemberTypes.ALL), classCodeIndenter))
 	}
+
+	override fun convertToFromTarget(type: AstType, text: String, toTarget: Boolean): String {
+		val OBJECT_REF = AstType.REF(Object::class.java.name)
+		return if (type is AstType.ARRAY) (if (toTarget) "N.unbox($text)" else "N.box($text)")
+		else if(type is AstType.REF && program[type].getFunctionalInterface() != null) {
+			if (toTarget) "${type.targetName}${staticAccess("__function", false)}($text)"
+			else "${type.targetName}${staticAccess("__wrap", false)}($text)"
+		} else if(type is AstType.REF && !program[type].isNative) {
+			(if (toTarget) "N.unbox($text)" else "N.box($text)")
+		}
+		else text
+	}
+
+	fun genBoxArgs(method: AstMethod): List<String> {
+		return method.getParamsWithAnnotations().map { convertToJava(it.arg.type, it.arg.name) }
+	}
+
+	fun genUnboxArgs(method: AstMethod): List<String> {
+		return method.getParamsWithAnnotations().map {  convertToTarget(it.arg.type, it.arg.name) }
+	}
+
 
 	override fun genStmSetArrayLiterals(stm: AstStm.SET_ARRAY_LITERALS) = Indenter {
 		line("${stm.array.genExpr()}.setArraySlice(${stm.startIndex}, [${stm.values.map { it.genExpr() }.joinToString(", ")}]);")
